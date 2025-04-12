@@ -1,0 +1,20 @@
+{
+      "name": "Anoop Rai",
+      "email": "anooprai6598@gmail.com",
+      "password": "$2b$10$PMAKfgFh4DznvXiOqjGx1ePpCxuqjz3y3NADerBFPAvEsilFtMZfC",
+      "phone": "+919569664127",
+      "location": {
+        "type": "Point",
+        "coordinates": [28.459497, 77.026634] 
+      },
+      "address": "Gurgaon",
+      "isAdmin": true,
+      "isProvider": false,
+      "isActive": true,
+      "lastLogin": { "$date": "2024-03-16T00:00:00Z" },
+      "twoFAEnabled": false,
+      "twoFASecret": null,
+      "createdAt": { "$date": "2024-03-16T00:00:00Z" },
+      "updatedAt": { "$date": "2024-03-16T00:00:00Z" }
+    }
+    

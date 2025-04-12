@@ -1,0 +1,7 @@
+{
+      "welcome": "Welcome to Qwikli!",
+      "bookingConfirmed": "Your booking has been confirmed.",
+      "newMessage": "You have a new message.",
+       "bookingConfirmedMessage": "Your booking (ID: {{bookingId}}) has been confirmed. Thank you for using our service!",
+  "bookingConfirmedSMS": "Your booking (ID: {{bookingId}}) has been confirmed. Thank you for using our service!"
+}
