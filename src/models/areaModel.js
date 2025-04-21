@@ -13,12 +13,6 @@ const areaSchema = new mongoose.Schema({
     trim: true,
     default: 'Delhi'
   },
-  pincode: {
-    type: String,
-    required: true,
-    trim: true,
-    match: /^[0-9]{6}$/
-  },
   location: {
     type: {
       type: String,

@@ -131,12 +131,6 @@ const providerSchema = new mongoose.Schema({
       required: true
     }
   },
-  area_coverage: { // in kilometers
-    type: Number,
-    required: true,
-    min: 1,
-    max: 100 // assuming maximum 100km coverage
-  },
   // Add service areas array that references the Area model
   service_areas: [{
     type: mongoose.Schema.Types.ObjectId,

@@ -5,7 +5,7 @@ import asyncHandler from 'express-async-handler';
 // @route   POST /api/areas
 // @access  Admin
 const createArea = asyncHandler(async (req, res) => {
-  const { name, city, pincode, coordinates } = req.body;
+  const { name, city, coordinates } = req.body;
 
   const areaExists = await Area.findOne({ name, city });
   if (areaExists) {
@@ -16,7 +16,6 @@ const createArea = asyncHandler(async (req, res) => {
   const area = await Area.create({
     name,
     city: city || 'Delhi',
-    pincode,
     location: {
       type: 'Point',
       coordinates // [longitude, latitude]
@@ -62,7 +61,6 @@ const updateArea = asyncHandler(async (req, res) => {
   if (area) {
     area.name = req.body.name || area.name;
     area.city = req.body.city || area.city;
-    area.pincode = req.body.pincode || area.pincode;
     
     if (req.body.coordinates) {
       area.location.coordinates = req.body.coordinates;
@@ -109,7 +107,6 @@ const createBulkAreas = asyncHandler(async (req, res) => {
   const formattedAreas = areasToCreate.map(area => ({
     name: area.name,
     city: area.city || 'Delhi',
-    pincode: area.pincode,
     location: {
       type: 'Point',
       coordinates: area.coordinates
