@@ -363,19 +363,3 @@ export const refreshProviderToken = asyncHandler(async (req, res) => {
     isVerified: provider.isVerified
   });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -131,12 +131,11 @@ const providerSchema = new mongoose.Schema({
       required: true
     }
   },
-  area_coverage: { // in kilometers
-    type: Number,
-    required: true,
-    min: 1,
-    max: 100 // assuming maximum 100km coverage
-  },
+  // Add service areas array that references the Area model
+  service_areas: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Area'
+  }],
   categories: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category'
@@ -167,7 +166,8 @@ const providerSchema = new mongoose.Schema({
   pan_card: {
     type: String, 
     required: true
-  }, isVerified: {
+  }, 
+  isVerified: {
     type: Boolean,
     default: false
   },
@@ -217,6 +217,8 @@ providerSchema.index({ categories: 1 });
 providerSchema.index({ 'services.service': 1 });
 providerSchema.index({ rating: -1 });
 providerSchema.index({ experience: -1 });
+// Add index for service_areas for faster queries
+providerSchema.index({ service_areas: 1 });
 
 const Provider = mongoose.model('Provider', providerSchema);
 
