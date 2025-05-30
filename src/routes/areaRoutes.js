@@ -5,11 +5,14 @@ import {
   getAreaById,
   updateArea,
   deleteArea,
-  createBulkAreas
+  createBulkAreas,
+  getNearbyAreas
 } from '../controllers/areaController.js';
 import { protectUser, admin } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+router.route('/nearby').get(getNearbyAreas);
 
 router.route('/')
   .post(protectUser, admin, createArea)

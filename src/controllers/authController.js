@@ -1,23 +1,34 @@
 import asyncHandler from 'express-async-handler';
 import jwt from 'jsonwebtoken';
 import User from '../models/userModel.js';
+import TempOTP from '../models/tempOTPmodel.js';
 import Provider from '../models/providerModel.js';
 import { logger } from '../utils/logger.js';
-import { sendOTP } from '../utils/otpService.js';
+import { sendOTP, verifyOTP } from '../utils/otpService.js';
+import { loginSchema, firsttimeSchema, updateProfileSchema, requestOTPSchema, verifyOTPSchema} from '../middleware/authtypes.js';
 
 // Generate JWT
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '365d',
-  });
+const generateToken = (user) => {
+  return jwt.sign(
+    { id: user._id, phone: user.phone },
+    process.env.JWT_SECRET,
+    { expiresIn: '30d' }
+  );
 };
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
 // @access  Public
 export const registerUser = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
-
+  try{
+    const parsephone = firsttimeSchema.safeParse(req.body);
+    if(!parsephone.success){
+      res.status(400).json({
+        message: error?.message || 'Something went wrong'
+      });
+      return;
+    }
+  const {phone} = parsephone.data;
   // Check if user already exists
   const userExists = await User.findOne({ phone });
   
@@ -26,33 +37,49 @@ export const registerUser = asyncHandler(async (req, res) => {
     throw new Error('User already exists');
   }
 
+  const name = req.body.name || `User ${phone.slice(-4)}`;
+
   // Create user with just phone number
   const user = await User.create({
     phone,
+    name,
   });
 
   res.status(201).json({
     _id: user._id,
     phone: user.phone,
-    token: generateToken(user._id),
-  });
+    name: user.name,
+    token: generateToken(user),
+  });}
+  catch(error){
+    console.log(error);
+    res.status(400).json({
+      message: error?.message || 'Something went wrong'
+    });
+  }
 });
 
 // @desc    Auth user & get token (OTP-based)
 // @route   POST /api/auth/login
 // @access  Public
 export const loginUser = asyncHandler(async (req, res) => {
-  const { phone, otp } = req.body;
+  try{
+    const parselogin = loginSchema.safeParse(req.body);
+    if(!parselogin.success){
+      res.status(400).json({
+        message: error?.message || 'Something went wrong'
+      });
+      return;
+    }
+    const { phone, otp } = parselogin.data;
+    const user = await User.findOne({ phone });
+    
+    if (!user) {
+      res.status(401);
+      throw new Error('Invalid phone number');
+    }
 
-  const user = await User.findOne({ phone });
-
-  if (!user) {
-    res.status(401);
-    throw new Error('Invalid phone number');
-  }
-
-  // Verify OTP (implementation depends on your OTP service)
-  if (user.otp !== otp || new Date() > user.otpExpires) {
+    if (user.otp !== otp || new Date() > user.otpExpires) {
     res.status(401);
     throw new Error('Invalid or expired OTP');
   }
@@ -67,16 +94,203 @@ export const loginUser = asyncHandler(async (req, res) => {
   res.json({
     _id: user._id,
     phone: user.phone,
-    token: generateToken(user._id),
+    token: generateToken(user),
   });
+  }
+  catch(error){
+    console.log(error);
+    res.status(400).json({
+      message: error?.message || 'Something went wrong'
+    });
+  }
 });
 
+// @desc    Check if user exists by phone number
+// @route   POST /api/auth/check-user
+// @access  Public
+export const checkUserExists = asyncHandler(async (req, res) => {
+  try {
+    // Extract the phone number directly - simplify validation for this endpoint
+    const { phone } = req.body;
+    
+    // Basic validation - ensure phone exists and has minimum length
+    if (!phone || phone.length < 10) {
+      return res.status(400).json({
+        message: 'Valid phone number is required'
+      });
+    }
+    
+    // Format phone for database query - extract only digits
+    const phoneDigits = phone.replace(/\D/g, '');
+    const lastTenDigits = phoneDigits.substring(Math.max(0, phoneDigits.length - 10));
+    
+    // Check if user exists in the database
+    const existingUser = await User.findOne({ 
+      phone: { $regex: new RegExp(lastTenDigits + '$') }
+    });
+    
+    return res.status(200).json({
+      exists: !!existingUser,
+      message: existingUser 
+        ? 'User found with this phone number' 
+        : 'No user found with this phone number'
+    });
+  } catch (error) {
+    logger.error('Error checking user existence:', error);
+    res.status(500).json({ 
+      message: 'Server error while checking user existence'
+    });
+  }
+});
+
+// @desc    Update name for users without one
+// @route   PUT /api/auth/update-name
+// @access  Private
+export const updateUserName = asyncHandler(async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({
+        message: 'Name is required'
+      });
+    }
+    
+    // Get user from middleware
+    const user = await User.findById(req.user._id);
+    
+    if (!user) {
+      res.status(404);
+      throw new Error('User not found');
+    }
+    
+    // Update name
+    user.name = name;
+    await user.save();
+    
+    res.json({
+      _id: user._id,
+      name: user.name,
+      phone: user.phone,
+      success: true
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({
+      message: error?.message || 'Something went wrong'
+    });
+  }
+});
+
+
+// @desc    Request OTP for user registration/login
+// @route   POST /api/auth/request-otp
+// @access  Public
+export const requestUserOTP = asyncHandler(async (req, res) => {
+  try {
+    const parsedata = requestOTPSchema.safeParse(req.body);
+    if (!parsedata.success) {
+      return res.status(400).json({
+        message: 'Something went wrong'
+      });
+    }
+    
+    const { phone, fullPhone } = parsedata.data;
+    
+    // Check if user exists (only for isNewUser flag)
+    const existingUser = await User.findOne({ phone });
+    const isNewUser = !existingUser || !existingUser.name || existingUser.name.trim() === '';
+    
+    // Generate and send OTP
+    await sendOTP(phone, fullPhone);
+    
+    res.json({
+      message: 'OTP sent successfully',
+      isNewUser
+    });
+  }
+  catch (error) {
+    console.log(error);
+    res.status(400).json({
+      message: error?.message || 'Something went wrong'
+    });
+  }
+});
+
+// @desc    Verify OTP and create/login user
+// @route   POST /api/auth/verify-otp
+// @access  Public
+export const verifyUserOTP = asyncHandler(async (req, res) => {
+  try {
+    const { phone, otp, fullPhone } = req.body;
+    
+    // Log verification attempt
+    logger.info(`OTP verification attempt - Phone: ${phone}, OTP: ${otp}`);
+    
+    // Use the updated verifyOTP service function
+    const verificationResult = await verifyOTP(phone, otp, fullPhone);
+    
+    if (!verificationResult.verified) {
+      logger.warn(`OTP verification failed: ${verificationResult.error}`);
+      return res.status(400).json({
+        success: false,
+        message: verificationResult.error || 'OTP verification failed'
+      });
+    }
+    
+    // OTP is verified successfully - now we can create or find the user
+    let user = await User.findOne({ phone });
+    let isNewUser = false;
+    
+    if (!user) {
+      // Create user only after successful verification
+      logger.info(`Creating new user with phone: ${phone}`);
+      user = await User.create({
+        phone,
+        isVerified: true
+      });
+      isNewUser = true;
+    } else {
+      // Update existing user's verification status
+      logger.info(`Updating existing user: ${user._id}`);
+      user.isVerified = true;
+      await user.save();
+    }
+    
+    // Delete the temporary OTP record since verification is successful
+    await TempOTP.deleteOne({ phone });
+    
+    // Generate authentication token
+    const token = generateToken(user);
+    
+    res.json({
+      success: true,
+      message: 'OTP verified successfully',
+      token,
+      user: {
+        _id: user._id,
+        phone: user.phone,
+        name: user.name || "",
+        email: user.email || "",
+        isVerified: user.isVerified
+      },
+      isNewUser,
+      method: verificationResult.method // Include verification method in response
+    });
+  } catch (error) {
+    logger.error(`OTP verification error: ${error.stack}`);
+    res.status(400).json({
+      success: false,
+      message: error?.message || 'OTP verification failed'
+    });
+  }
+});
 
 // @desc    Request OTP for provider registration
 // @route   POST /api/providers/request-otp
 // @access  Public
 export const requestProviderOTP = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
+  const { phone, fullPhone } = req.body;
 
   // Check if provider already exists
   const providerExists = await Provider.findOne({ phone });
@@ -85,8 +299,8 @@ export const requestProviderOTP = asyncHandler(async (req, res) => {
     throw new Error('Provider already registered');
   }
 
-  // Generate and send OTP
-  const { otp, otpExpires } = await sendOTP(phone);
+  // Generate and send OTP using Twilio Verify Service
+  const { otp, otpExpires } = await sendOTP(phone, fullPhone);
 
   // Create temporary provider record
   const provider = await Provider.create({
@@ -110,12 +324,12 @@ export const registerProvider = asyncHandler(async (req, res) => {
     otp,
     name,
     current_location,
-    area_coverage,
     categories,
     services,
     photo,
     aadhar_card,
-    pan_card
+    pan_card,
+    fullPhone
   } = req.body;
 
    // Handle file uploads (using multer)
@@ -129,10 +343,12 @@ export const registerProvider = asyncHandler(async (req, res) => {
     throw new Error('Registration session expired');
   }
 
-  // Verify OTP
-  if (provider.otp !== otp || new Date() > provider.otpExpires) {
+  // Verify OTP using Twilio Verify Service with fallback to database
+  const verificationResult = await verifyOTP(provider.phone, otp, fullPhone);
+  
+  if (!verificationResult.success || !verificationResult.verified) {
     res.status(401);
-    throw new Error('Invalid or expired OTP');
+    throw new Error(verificationResult.error || 'Invalid or expired OTP');
   }
 
   // Generate verification token
@@ -147,12 +363,11 @@ export const registerProvider = asyncHandler(async (req, res) => {
         type: 'Point',
         coordinates: current_location
       },
-      area_coverage,
       categories,
       services,
-      photo:photoPath,
-      aadhar_card:aadharPath,
-      pan_card:panPath,
+      // photo: photoPath,
+      // aadhar_card: aadharPath,
+      // pan_card: panPath,
       isVerified: true,
       verification_token,
       otp: undefined,
@@ -166,7 +381,8 @@ export const registerProvider = asyncHandler(async (req, res) => {
     phone: updatedProvider.phone,
     name: updatedProvider.name,
     verification_token,
-    isVerified: updatedProvider.isVerified
+    isVerified: updatedProvider.isVerified,
+    verificationMethod: verificationResult.method
   });
 });
 
@@ -174,7 +390,7 @@ export const registerProvider = asyncHandler(async (req, res) => {
 // @route   POST /api/providers/login/request-otp
 // @access  Public
 export const requestProviderLoginOTP = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
+  const { phone, fullPhone } = req.body;
 
   const provider = await Provider.findOne({ phone });
   if (!provider) {
@@ -182,8 +398,8 @@ export const requestProviderLoginOTP = asyncHandler(async (req, res) => {
     throw new Error('Provider not found');
   }
 
-  // Generate and send OTP
-  const { otp, otpExpires } = await sendOTP(phone);
+  // Generate and send OTP using Twilio Verify Service
+  const { otp, otpExpires } = await sendOTP(phone, fullPhone);
 
   provider.otp = otp;
   provider.otpExpires = otpExpires;
@@ -196,7 +412,7 @@ export const requestProviderLoginOTP = asyncHandler(async (req, res) => {
 // @route   POST /api/providers/login/verify-otp
 // @access  Public
 export const loginProvider = asyncHandler(async (req, res) => {
-  const { phone, otp } = req.body;
+  const { phone, otp, fullPhone } = req.body;
 
   const provider = await Provider.findOne({ phone });
   if (!provider) {
@@ -204,10 +420,12 @@ export const loginProvider = asyncHandler(async (req, res) => {
     throw new Error('Provider not found');
   }
 
-  // Verify OTP
-  if (provider.otp !== otp || new Date() > provider.otpExpires) {
+  // Verify OTP using Twilio Verify Service with fallback to database
+  const verificationResult = await verifyOTP(phone, otp, fullPhone);
+  
+  if (!verificationResult.success || !verificationResult.verified) {
     res.status(401);
-    throw new Error('Invalid or expired OTP');
+    throw new Error(verificationResult.error || 'Invalid or expired OTP');
   }
 
   // Generate new token
@@ -224,7 +442,8 @@ export const loginProvider = asyncHandler(async (req, res) => {
     phone: provider.phone,
     name: provider.name,
     verification_token,
-    isVerified: provider.isVerified
+    isVerified: provider.isVerified,
+    verificationMethod: verificationResult.method
   });
 });
 
@@ -279,29 +498,41 @@ export const updateProviderProfile = asyncHandler(async (req, res) => {
 // @route   GET /api/auth/profile
 // @access  Private
 export const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = req.user; 
 
-  if (user) {
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      address: user.address,
-      location: user.location,
-      isAdmin:user.isAdmin,
-      isProvider:user.isProvider
-    });
-  } else {
+  if (!user) {
     res.status(404);
     throw new Error('User not found');
   }
+
+  res.json({
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    address: user.address,
+    location: user.location,
+    isAdmin: user.isAdmin,
+    isProvider: user.isProvider,
+  });
 });
+
 
 // @desc    Update user profile
 // @route   PUT /api/auth/profile
 // @access  Private
 export const updateUserProfile = asyncHandler(async (req, res) => {
+  const parsed = updateProfileSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: 'Invalid data format',
+      errors: parsed.error.issues,
+    });
+  }
+
+  const data = parsed.data;
+
   const user = await User.findById(req.user._id);
 
   if (!user) {
@@ -309,17 +540,11 @@ export const updateUserProfile = asyncHandler(async (req, res) => {
     throw new Error('User not found');
   }
 
-  // Only allow updating phone number for regular users
-  if (req.body.phone) {
-    const phoneExists = await User.findOne({ phone: req.body.phone });
-    if (phoneExists && phoneExists._id.toString() !== user._id.toString()) {
-      res.status(400);
-      throw new Error('Phone number already in use');
-    }
-    user.phone = req.body.phone;
-  }
+  user.name = data.name || user.name;
+  user.email = data.email || user.email; 
+  user.address = data.address || user.address;
 
-  // Providers can update their password
+  // Allow password change only if the user is a provider
   if (req.body.password && user.isProvider) {
     user.password = req.body.password;
   }
@@ -328,12 +553,18 @@ export const updateUserProfile = asyncHandler(async (req, res) => {
 
   res.json({
     _id: updatedUser._id,
-    phone: updatedUser.phone,
+    phone: updatedUser.phone, 
+    name: updatedUser.name,
+    email: updatedUser.email,
+    address: updatedUser.address,
+    location: updatedUser.location,
     isAdmin: updatedUser.isAdmin,
     isProvider: updatedUser.isProvider,
-    token: generateToken(updatedUser._id),
+    token: generateToken(updatedUser),
   });
 });
+
+
 
 
 // @desc    Refresh provider token

@@ -1,8 +1,26 @@
 import Joi from 'joi';
 
 // Validation middleware factory
+// Let's add more detailed error logging to help diagnose the issue
 export const validate = (schema) => {
   return (req, res, next) => {
+    // More detailed logging
+    if (!schema) {
+      console.error('Schema is undefined or null');
+      return res.status(500).json({ message: 'Server error: Invalid validation schema (schema is undefined)' });
+    }
+    
+    if (typeof schema !== 'object') {
+      console.error(`Schema is not an object, it's a ${typeof schema}`);
+      return res.status(500).json({ message: 'Server error: Invalid validation schema (not an object)' });
+    }
+    
+    if (typeof schema.validate !== 'function') {
+      console.error('Schema does not have a validate function');
+      console.error('Schema keys:', Object.keys(schema));
+      return res.status(500).json({ message: 'Server error: Invalid validation schema (no validate function)' });
+    }
+
     const { error } = schema.validate(req.body, { abortEarly: false });
     if (error) {
       const errorMessage = error.details.map((detail) => detail.message).join(', ');
@@ -17,6 +35,7 @@ export const validate = (schema) => {
 // User validation schemas
 //Joi---> Joi is a JavaScript validation library that helps in defining and validating data schemas for objects, arrays, strings, numbers, and other data types
 
+// User validation schemas
 export const userSchemas = {
   register: Joi.object({
     name: Joi.string().required().min(2).max(50),
@@ -33,8 +52,37 @@ export const userSchemas = {
   login: Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().required()
+  }),
+  
+  requestOTP: Joi.object({
+    phone: Joi.string().pattern(/^[0-9]{10}$/).required().messages({
+      'string.pattern.base': 'Phone must be a 10-digit number',
+      'string.empty': 'Phone is required'
+    }),
+    fullPhone: Joi.string().optional() // Allow the full phone with country code
+  }),
+  
+  verifyOTP: Joi.object({
+    phone: Joi.string().pattern(/^[0-9]{10}$/).required().messages({
+      'string.pattern.base': 'Phone must be a 10-digit number',
+      'string.empty': 'Phone is required'
+    }),
+    otp: Joi.string().required().messages({
+      'string.empty': 'OTP is required'
+    })
+  }),
+  
+  // Add this for profile updates
+  updateProfile: Joi.object({
+    name: Joi.string().min(2).max(50),
+    email: Joi.string().email(),
+    phone: Joi.string().pattern(/^[0-9]{10}$/),
+    address: Joi.string(),
+    location: Joi.object({
+      type: Joi.string().valid('Point'),
+      coordinates: Joi.array().items(Joi.number()).length(2)
+    })
   })
-
 };
 
 // Provider validation schemas
@@ -203,4 +251,41 @@ export const serviceSchemas = {
     basePrice: Joi.number().min(0),
     estimatedTime: Joi.number().min(0)
   })
+};
+
+export const tempbookingSchemas = {
+  // Your existing schemas here...
+  
+  // Updated temp booking schema
+  tempBooking: {
+    create: Joi.object({
+      // Changed from serviceId to services array
+      services: Joi.array().items(
+        Joi.object({
+          serviceId: Joi.string().required().messages({
+            'string.empty': 'Service ID is required',
+            'any.required': 'Service ID is required'
+          })
+        })
+      ).min(1).required().messages({
+        'array.min': 'At least one service is required',
+        'any.required': 'Services are required'
+      }),
+      // Added totalPrice from frontend
+      totalPrice: Joi.number().required().messages({
+        'number.base': 'Total price must be a number',
+        'any.required': 'Total price is required'
+      }),
+      scheduledDate: Joi.date().greater('now').required().messages({
+        'date.greater': 'Scheduled date must be in the future',
+        'date.base': 'Scheduled date must be a valid date',
+        'any.required': 'Scheduled date is required'
+      }),
+      scheduledTime: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).required().messages({
+        'string.pattern.base': 'Scheduled time must be in HH:MM format',
+        'string.empty': 'Scheduled time is required',
+        'any.required': 'Scheduled time is required'
+      })
+    })
+  }
 };
