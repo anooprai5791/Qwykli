@@ -6,7 +6,8 @@ import {
   updateService,
   deleteService,
   getServicesByCategory,
-  getServicesBySubcategory
+  getServicesBySubcategory,
+  searchServices
 } from '../controllers/serviceController.js';
 import { protectUser, admin } from '../middleware/authMiddleware.js';
 import { validate, serviceSchemas } from '../middleware/validationMiddleware.js';
@@ -16,6 +17,8 @@ import {tempCreateService,
   tempGetServicesByCategory,tempUpdateService,tempDeleteService,tempGetServiceById} from '../controllers/tempServiceController.js';
 
 const router = express.Router();
+
+router.get('/search', cacheMiddleware(60), searchServices);
 
 // Temporary routes - must come before regular routes
 router.route('/temp')

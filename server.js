@@ -233,6 +233,8 @@ import bookingRoutes from './src/routes/bookingRoutes.js';
 import authRoutes from './src/routes/authRoutes.js';
 import adminRoutes from './src/routes/adminRoutes.js';
 import providerAuthRoutes from './src/routes/providerAuthRoutes.js';
+import cartRoutes from './src/routes/cartRoutes.js';
+import tempBookingRoutes from './src/routes/tempBookingRoutes.js';
 
 import { localizationMiddleware } from './src/middleware/localization.js';
 
@@ -283,6 +285,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/provider/auth',providerAuthRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/temp-booking', tempBookingRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

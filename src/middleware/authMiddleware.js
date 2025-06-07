@@ -7,41 +7,40 @@ import Provider from '../models/providerModel.js';
 // USER AUTHENTICATION
 // ========================
 
-// Protect user routes - verify token and set req.user
 export const protectUser = asyncHandler(async (req, res, next) => {
-  let token;
+  const authHeader = req.headers.authorization;
 
-  // Check for token in headers
-  if (req.headers.authorization?.startsWith('Bearer')) {
-    try {
-      // Get token from header
-      token = req.headers.authorization.split(' ')[1];
-
-      // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      // Get user from the token
-      req.user = await User.findOne({
-        _id: decoded.id,
-        phone: decoded.phone, // Additional verification
-        isVerified: true
-      });
-
-      if (!req.user) {
-        res.status(401);
-        throw new Error('User not found or not verified');
-      }
-
-      next();
-    } catch (error) {
-      res.status(401);
-      throw new Error('Not authorized, token failed');
-    }
-  }
-
-  if (!token) {
+  if (!authHeader || !authHeader.startsWith('Bearer')) {
     res.status(401);
     throw new Error('Not authorized, no token');
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await User.findOne({
+      _id: decoded.id,
+      phone: decoded.phone,
+      isVerified: true,
+    });
+
+    if (!user) {
+      res.status(401);
+      throw new Error('User not found or not verified');
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401);
+    if (error.name === 'TokenExpiredError') {
+      throw new Error('Token expired, please login again');
+    } else if (error.name === 'JsonWebTokenError') {
+      throw new Error('Invalid token, please login again');
+    }
+    throw new Error('Not authorized, token failed');
   }
 });
 
@@ -49,44 +48,39 @@ export const protectUser = asyncHandler(async (req, res, next) => {
 // PROVIDER AUTHENTICATION 
 // ========================
 
-// Protect provider routes - verify token and set req.provider
 export const protectProvider = asyncHandler(async (req, res, next) => {
-  let token;
+  const authHeader = req.headers.authorization;
 
-  if (req.headers.authorization?.startsWith('Bearer')) {
-    try {
-      token = req.headers.authorization.split(' ')[1];
-      
-      // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      // Get provider with matching phone and token
-      req.provider = await Provider.findOne({
-        _id: decoded.id,
-        phone: decoded.phone,
-        verification_token: token,
-        isVerified: true
-      });
-
-      if (!req.provider) {
-        res.status(401);
-        throw new Error('Provider not found or not verified');
-      }
-
-      next();
-    } catch (error) {
-      res.status(401);
-      if (error.name === 'TokenExpiredError') {
-        throw new Error('Token expired, please login again');
-      } else {
-        throw new Error('Not authorized, invalid token');
-      }
-    }
-  }
-
-  if (!token) {
+  if (!authHeader?.startsWith('Bearer')) {
     res.status(401);
     throw new Error('Not authorized, no token');
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const provider = await Provider.findOne({
+      _id: decoded.id,
+      phone: decoded.phone,
+      verification_token: token,
+      isVerified: true,
+    });
+
+    if (!provider) {
+      res.status(401);
+      throw new Error('Provider not found or not verified');
+    }
+
+    req.provider = provider;
+    next();
+  } catch (error) {
+    res.status(401);
+    if (error.name === 'TokenExpiredError') {
+      throw new Error('Token expired, please login again');
+    }
+    throw new Error('Not authorized, invalid token');
   }
 });
 
@@ -94,7 +88,6 @@ export const protectProvider = asyncHandler(async (req, res, next) => {
 // ROLE-BASED MIDDLEWARE
 // ========================
 
-// Admin middleware (for users)
 export const admin = asyncHandler(async (req, res, next) => {
   if (req.user?.isAdmin) {
     next();
@@ -104,7 +97,6 @@ export const admin = asyncHandler(async (req, res, next) => {
   }
 });
 
-// Active provider middleware
 export const activeProvider = asyncHandler(async (req, res, next) => {
   if (req.provider?.isActive) {
     next();
@@ -118,17 +110,50 @@ export const activeProvider = asyncHandler(async (req, res, next) => {
 // COMBINED MIDDLEWARE
 // ========================
 
-// For routes that can accept either user or provider
 export const protectAny = asyncHandler(async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader?.startsWith('Bearer')) {
+    res.status(401);
+    throw new Error('Not authorized, no token');
+  }
+
+  const token = authHeader.split(' ')[1];
+
   try {
-    await protectUser(req, res, () => {});
-    return next();
-  } catch (userErr) {
-    try {
-      await protectProvider(req, res, next);
-    } catch (providerErr) {
-      res.status(401);
-      throw new Error('Not authorized as user or provider');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const [user, provider] = await Promise.all([
+      User.findOne({
+        _id: decoded.id,
+        phone: decoded.phone,
+        isVerified: true,
+      }),
+      Provider.findOne({
+        _id: decoded.id,
+        phone: decoded.phone,
+        verification_token: token,
+        isVerified: true,
+      }),
+    ]);
+
+    if (user) {
+      req.user = user;
+      return next();
     }
+
+    if (provider) {
+      req.provider = provider;
+      return next();
+    }
+
+    res.status(401);
+    throw new Error('Not authorized as user or provider');
+  } catch (error) {
+    res.status(401);
+    if (error.name === 'TokenExpiredError') {
+      throw new Error('Token expired, please login again');
+    }
+    throw new Error('Not authorized, invalid token');
   }
 });

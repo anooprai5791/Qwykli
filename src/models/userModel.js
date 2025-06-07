@@ -106,10 +106,8 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true,
   },
-  isAdmin:{type:Boolean, default:false},
-  otp: { type: String }, // OTP for phone verification
-  otpExpires: { type: Date }, // OTP expiration time
-  isVerified: { type: Boolean, default: false }, // Phone verification status
+  isAdmin: {type: Boolean, default: false},
+  isVerified: { type: Boolean, default: false }, // Keep this field
   name: { type: String }, // Optional field
   email: { type: String }, // Optional field
   address: { type: String }, // Optional field
@@ -130,6 +128,9 @@ const userSchema = new mongoose.Schema({
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
+
+// - otp: { type: String }
+// - otpExpires: { type: Date }
 
 userSchema.virtual('bookings', {
   ref: 'Booking',
